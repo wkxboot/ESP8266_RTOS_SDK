@@ -262,6 +262,29 @@ struct linger {
  */
 #define IPV6_CHECKSUM       7  /* RFC3542: calculate and insert the ICMPv6 checksum for raw sockets. */
 #define IPV6_V6ONLY         27 /* RFC3493: boolean control to restrict AF_INET6 sockets to IPv6 communications only. */
+
+#if LWIP_IPV6_MLD
+#if ESP_LWIP_IPV6_MLD
+/* Socket options for IPV6 multicast, uses the MLD interface to manage group memberships. RFC2133. */
+#define IPV6_MULTICAST_IF 0x300
+#define IPV6_MULTICAST_HOPS 0x301
+#define IPV6_MULTICAST_LOOP 0x302
+#define IPV6_ADD_MEMBERSHIP 0x303
+#define IPV6_DROP_MEMBERSHIP 0x304
+
+/* Structure used for IPV6_ADD/DROP_MEMBERSHIP */
+typedef struct ip6_mreq {
+    struct in6_addr ipv6mr_multiaddr; /* IPv6 multicast addr */
+    struct in6_addr ipv6mr_interface; /* local IP address of interface */
+} ip6_mreq;
+
+/* Commonly used synonyms for these options */
+#define IPV6_JOIN_GROUP IPV6_ADD_MEMBERSHIP
+#define IPV6_LEAVE_GROUP IPV6_DROP_MEMBERSHIP
+
+#endif /* ESP_LWIP_IPV6_MLD */
+#endif /* LWIP_IPV6_MLD */
+
 #endif /* LWIP_IPV6 */
 
 #if LWIP_UDP && LWIP_UDPLITE
@@ -425,7 +448,9 @@ typedef struct fd_set
 } fd_set;
 
 #elif LWIP_SOCKET_OFFSET
+#ifndef CONFIG_USING_ESP_VFS
 #error LWIP_SOCKET_OFFSET does not work with external FD_SET!
+#endif
 #elif FD_SETSIZE < MEMP_NUM_NETCONN
 #error "external FD_SETSIZE too small for number of sockets"
 #endif /* FD_SET */
@@ -555,9 +580,15 @@ int lwip_fcntl(int s, int cmd, int val);
 /** @ingroup socket */
 #define close(s)                                  lwip_close(s)
 /** @ingroup socket */
-#define fcntl(s,cmd,val)                          lwip_fcntl(s,cmd,val)
+
+/* Disable here to use stand APIs */
+//#define fcntl(s,cmd,val)                          lwip_fcntl(s,cmd,val)
 /** @ingroup socket */
-#define ioctl(s,cmd,argp)                         lwip_ioctl(s,cmd,argp)
+//#define ioctl(s,cmd,argp)                         lwip_ioctl(s,cmd,argp)
+
+int ioctl(int fd, int request, ...);
+int fcntl(int fd, int request, ...);
+
 #endif /* LWIP_POSIX_SOCKETS_IO_NAMES */
 #endif /* LWIP_COMPAT_SOCKETS != 2 */
 

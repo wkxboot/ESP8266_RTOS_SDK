@@ -15,13 +15,15 @@
 #include <string.h>
 
 #include "spi_flash.h"
+#include "esp8266/spi_register.h"
+#include "esp8266/pin_mux_register.h"
 #include "priv/esp_spi_flash_raw.h"
 
 #include "esp_attr.h"
-#include "esp_wifi_osi.h"
 #include "esp_system.h"
 #include "esp_log.h"
 #include "esp_task_wdt.h"
+#include "esp_image_format.h"
 
 #define SPI_FLASH_ISSI_ENABLE_QIO_MODE          (BIT(6))
 
@@ -43,9 +45,15 @@
 #define SPI_FLASH_RDSR2      0x35
 #define SPI_FLASH_PROTECT_STATUS                (BIT(2)|BIT(3)|BIT(4)|BIT(5)|BIT(6)|BIT(14))
 
+#ifndef BOOTLOADER_BUILD
 #define FLASH_INTR_DECLARE(t)
 #define FLASH_INTR_LOCK(t)                      vPortEnterCritical()
 #define FLASH_INTR_UNLOCK(t)                    vPortExitCritical()
+#else
+#define FLASH_INTR_DECLARE(t)
+#define FLASH_INTR_LOCK(t)
+#define FLASH_INTR_UNLOCK(t)
+#endif
 
 #define FLASH_ALIGN_BYTES                       4
 #define FLASH_ALIGN(addr)                       ((((size_t)addr) + (FLASH_ALIGN_BYTES - 1)) & (~(FLASH_ALIGN_BYTES - 1)))
@@ -53,15 +61,12 @@
 #define NOT_ALIGN(addr)                         (((size_t)addr) & (FLASH_ALIGN_BYTES - 1))
 #define IS_ALIGN(addr)                          (NOT_ALIGN(addr) == 0)
 
-extern void pp_soft_wdt_stop(void);
-extern void pp_soft_wdt_restart(void);
-
 extern void vPortEnterCritical(void);
 extern void vPortExitCritical(void);
 
-esp_spi_flash_chip_t flashchip = {
+esp_rom_spiflash_chip_t g_rom_flashchip = {
     0x1640ef,
-    (32 / 8) * 1024 * 1024,
+    CONFIG_SPI_FLASH_SIZE,
     64 * 1024,
     4 * 1024,
     256,
@@ -84,7 +89,7 @@ bool spi_user_cmd(spi_cmd_dir_t mode, spi_cmd_t *p_cmd)
     FLASH_INTR_LOCK(c_tmp);
     FlashIsOnGoing = 1;
 
-    ret = spi_user_cmd_raw(&flashchip, mode, p_cmd);
+    ret = spi_user_cmd_raw(&g_rom_flashchip, mode, p_cmd);
 
     FlashIsOnGoing = 0;
     FLASH_INTR_UNLOCK(c_tmp);
@@ -169,7 +174,7 @@ uint32_t spi_flash_get_id(void)
 
     FlashIsOnGoing = 1;
 
-    rdid = spi_flash_get_id_raw(&flashchip);
+    rdid = spi_flash_get_id_raw(&g_rom_flashchip);
 
     FlashIsOnGoing = 0;
 
@@ -187,7 +192,7 @@ esp_err_t spi_flash_read_status(uint32_t *status)
 
     FlashIsOnGoing = 1;
 
-    ret = spi_flash_read_status_raw(&flashchip, status);
+    ret = spi_flash_read_status_raw(&g_rom_flashchip, status);
 
     FlashIsOnGoing = 0;
 
@@ -204,7 +209,7 @@ esp_err_t spi_flash_write_status(uint32_t status_value)
 
     FlashIsOnGoing = 1;
 
-    spi_flash_write_status_raw(&flashchip, status_value);
+    spi_flash_write_status_raw(&g_rom_flashchip, status_value);
 
     FlashIsOnGoing = 0;
 
@@ -431,7 +436,7 @@ void user_spi_flash_dio_to_qio_pre_init(void)
         }
         //ENBALE FLASH QIO 0X01H+0X00+0X02
     } else {
-        if (spi_flash_enable_qmode_raw(&flashchip) == ESP_OK) {
+        if (spi_flash_enable_qmode_raw(&g_rom_flashchip) == ESP_OK) {
             to_qio = true;
         }
     }
@@ -447,7 +452,7 @@ esp_err_t spi_flash_erase_sector(size_t sec)
 
     esp_err_t ret;
 
-    if (sec >= (flashchip.chip_size / flashchip.sector_size)) {
+    if (sec >= (g_rom_flashchip.chip_size / g_rom_flashchip.sector_size)) {
         return ESP_ERR_FLASH_OP_FAIL;
     }
 
@@ -456,13 +461,11 @@ esp_err_t spi_flash_erase_sector(size_t sec)
     }
 
     FLASH_INTR_LOCK(c_tmp);
-    pp_soft_wdt_stop();
     FlashIsOnGoing = 1;
     
-    ret = spi_flash_erase_sector_raw(&flashchip, sec, flashchip.sector_size);
+    ret = spi_flash_erase_sector_raw(&g_rom_flashchip, sec, g_rom_flashchip.sector_size);
 
     FlashIsOnGoing = 0;
-    pp_soft_wdt_restart();
     FLASH_INTR_UNLOCK(c_tmp);
 
     return ret;
@@ -474,15 +477,15 @@ static esp_err_t spi_flash_program(uint32_t target, uint32_t *src_addr, size_t l
     uint32_t pgm_len, pgm_num;
     uint8_t i;
 
-    page_size = flashchip.page_size;
+    page_size = g_rom_flashchip.page_size;
     pgm_len = page_size - (target % page_size);
 
     if (len < pgm_len) {
-        if (ESP_OK != spi_flash_write_raw(&flashchip,  target, src_addr, len)) {
+        if (ESP_OK != spi_flash_write_raw(&g_rom_flashchip,  target, src_addr, len)) {
             return ESP_ERR_FLASH_OP_FAIL;
         }
     } else {
-        if (ESP_OK != spi_flash_write_raw(&flashchip,  target, src_addr, pgm_len)) {
+        if (ESP_OK != spi_flash_write_raw(&g_rom_flashchip,  target, src_addr, pgm_len)) {
             return ESP_ERR_FLASH_OP_FAIL;
         }
 
@@ -490,7 +493,7 @@ static esp_err_t spi_flash_program(uint32_t target, uint32_t *src_addr, size_t l
         pgm_num = (len - pgm_len) / page_size;
 
         for (i = 0; i < pgm_num; i++) {
-            if (ESP_OK != spi_flash_write_raw(&flashchip,  target + pgm_len, src_addr + (pgm_len >> 2), page_size)) {
+            if (ESP_OK != spi_flash_write_raw(&g_rom_flashchip,  target + pgm_len, src_addr + (pgm_len >> 2), page_size)) {
                 return ESP_ERR_FLASH_OP_FAIL;
             }
 
@@ -498,7 +501,7 @@ static esp_err_t spi_flash_program(uint32_t target, uint32_t *src_addr, size_t l
         }
 
         //remain parts to program
-        if (ESP_OK != spi_flash_write_raw(&flashchip,  target + pgm_len, src_addr + (pgm_len >> 2), len - pgm_len)) {
+        if (ESP_OK != spi_flash_write_raw(&g_rom_flashchip,  target + pgm_len, src_addr + (pgm_len >> 2), len - pgm_len)) {
             return ESP_ERR_FLASH_OP_FAIL;
         }
     }
@@ -512,13 +515,11 @@ static esp_err_t __spi_flash_write(size_t dest_addr, const void *src, size_t siz
     FLASH_INTR_DECLARE(c_tmp);
 
     FLASH_INTR_LOCK(c_tmp);
-    pp_soft_wdt_stop();
     FlashIsOnGoing = 1;
 
     ret = spi_flash_program(dest_addr, (uint32_t *)src, size);
 
     FlashIsOnGoing = 0;
-    pp_soft_wdt_restart();
     FLASH_INTR_UNLOCK(c_tmp);
 
     return ret;
@@ -555,7 +556,7 @@ esp_err_t spi_flash_write(size_t dest_addr, const void *src, size_t size)
         return ESP_ERR_FLASH_OP_FAIL;
     }
 
-    if ((dest_addr + size) > flashchip.chip_size) {
+    if ((dest_addr + size) > g_rom_flashchip.chip_size) {
         return ESP_ERR_FLASH_OP_FAIL;
     }
 
@@ -616,13 +617,11 @@ static esp_err_t __spi_flash_read(size_t src_addr, void *dest, size_t size)
     FLASH_INTR_DECLARE(c_tmp);
 
     FLASH_INTR_LOCK(c_tmp);
-    pp_soft_wdt_stop();
     FlashIsOnGoing = 1;
 
-    ret = spi_flash_read_raw(&flashchip, src_addr, dest, size);
+    ret = spi_flash_read_raw(&g_rom_flashchip, src_addr, dest, size);
 
     FlashIsOnGoing = 0;
-    pp_soft_wdt_restart();
     FLASH_INTR_UNLOCK(c_tmp);
 
     return ret == 0 ? ESP_OK : ESP_ERR_FLASH_OP_FAIL;
@@ -719,4 +718,66 @@ esp_err_t spi_flash_erase_range(size_t start_address, size_t size)
     } while (ret == ESP_OK && --num);
 
     return ret;
+}
+
+void esp_spi_flash_init(uint32_t spi_speed, uint32_t spi_mode)
+{
+    uint32_t freqdiv, freqbits;
+
+    SET_PERI_REG_MASK(PERIPHS_SPI_FLASH_USRREG, BIT5);
+
+    if (spi_speed < 3)
+        freqdiv = spi_speed + 2;
+    else if (0x0F == spi_speed)
+        freqdiv = 1;
+    else
+        freqdiv = 2;
+
+    if (1 >= freqdiv) {
+        freqbits = SPI_FLASH_CLK_EQU_SYSCLK;
+        SET_PERI_REG_MASK(PERIPHS_SPI_FLASH_CTRL, SPI_FLASH_CLK_EQU_SYSCLK);
+        SET_PERI_REG_MASK(PERIPHS_IO_MUX_CONF_U, SPI0_CLK_EQU_SYSCLK);
+    } else {
+        freqbits = ((freqdiv - 1) << 8) + ((freqdiv / 2 - 1) << 4) + (freqdiv - 1);
+        CLEAR_PERI_REG_MASK(PERIPHS_SPI_FLASH_CTRL, SPI_FLASH_CLK_EQU_SYSCLK);
+        CLEAR_PERI_REG_MASK(PERIPHS_IO_MUX_CONF_U, SPI0_CLK_EQU_SYSCLK);
+    }
+    SET_PERI_REG_BITS(PERIPHS_SPI_FLASH_CTRL, 0xfff, freqbits, 0);      
+
+    if (spi_mode == ESP_IMAGE_SPI_MODE_QIO || spi_mode == ESP_IMAGE_SPI_MODE_QOUT) {
+        user_spi_flash_dio_to_qio_pre_init();
+
+        ESP_EARLY_LOGI("qio_mode", "Enabling default flash chip QIO");
+    }
+}
+
+uintptr_t spi_flash_cache2phys(const void *cached)
+{
+    uint32_t map_size;
+    uintptr_t addr_offset;
+    uintptr_t addr = (uintptr_t)cached;
+
+    const uint32_t reg = REG_READ(CACHE_FLASH_CTRL_REG);
+    const uint32_t segment = (reg >> CACHE_MAP_SEGMENT_S) & CACHE_MAP_SEGMENT_MASK;
+
+    if (reg & CACHE_MAP_2M) {
+        map_size = CACHE_2M_SIZE;
+        addr_offset = 0;
+    } else {
+        map_size = CACHE_1M_SIZE;
+        if (reg & CACHE_MAP_1M_HIGH)
+            addr_offset = CACHE_1M_SIZE;
+        else
+            addr_offset = 0;
+    }
+
+    if (addr <= CACHE_BASE_ADDR || addr >= CACHE_BASE_ADDR + map_size)
+        return SPI_FLASH_CACHE2PHYS_FAIL;
+    
+    return segment * CACHE_2M_SIZE + (addr + addr_offset - CACHE_BASE_ADDR);
+}
+
+size_t spi_flash_get_chip_size()
+{
+    return g_rom_flashchip.chip_size;
 }
