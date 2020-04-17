@@ -32,6 +32,12 @@
 static const char* TAG = "system_api";
 
 static uint8_t base_mac_addr[6] = { 0 };
+uint32_t g_esp_ticks_per_us = 80;
+
+// Bootloader can get this information
+const __attribute__((section(".SystemInfoVector.text"))) esp_sys_info_t g_esp_sys_info = {
+    .version = ESP_IDF_VERSION
+};
 
 esp_err_t esp_base_mac_addr_set(uint8_t *mac)
 {
@@ -50,7 +56,7 @@ esp_err_t esp_base_mac_addr_get(uint8_t *mac)
     uint8_t null_mac[6] = {0};
 
     if (memcmp(base_mac_addr, null_mac, 6) == 0) {
-        ESP_LOGI(TAG, "Base MAC address is not set, read default base MAC address from BLK0 of EFUSE");
+        ESP_LOGI(TAG, "Base MAC address is not set, read default base MAC address from EFUSE");
         return ESP_ERR_INVALID_MAC;
     }
 
@@ -361,3 +367,18 @@ uint32_t esp_get_old_sysconf_addr(void)
 {
     return rtc_sys_info.old_sysconf_addr;
 }
+
+void os_update_cpu_frequency(uint32_t ticks_per_us)
+{
+    extern uint32_t _xt_tick_divisor;
+
+    if (REG_READ(DPORT_CTL_REG) & DPORT_CTL_DOUBLE_CLK) {
+        g_esp_ticks_per_us = CPU_CLK_FREQ * 2 / 1000000;
+        _xt_tick_divisor = (CPU_CLK_FREQ * 2 / CONFIG_FREERTOS_HZ);
+    } else {
+        g_esp_ticks_per_us = CPU_CLK_FREQ / 1000000;;
+        _xt_tick_divisor = (CPU_CLK_FREQ / CONFIG_FREERTOS_HZ);
+    }
+}
+
+void ets_update_cpu_frequency(uint32_t ticks_per_us) __attribute__((alias("os_update_cpu_frequency")));

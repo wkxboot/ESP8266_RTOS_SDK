@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/errno.h>
 
 #include "esp_libc.h"
 #include "FreeRTOS.h"
@@ -158,7 +159,9 @@ void _free_r(struct _reent *r, void *ptr)
 
 void abort(void)
 {
-    ESP_LOGE("ABORT","Error found and abort!");
+#ifndef CONFIG_ESP_PANIC_SILENT_REBOOT
+    ets_printf("abort() was called at PC %p on core %d\r\n", __builtin_return_address(0) - 3, xPortGetCoreID());
+#endif
 
     /* cause a exception to jump into panic function */
     while (1) {
@@ -174,4 +177,10 @@ void _exit(int status)
 void *_sbrk_r(struct _reent *r, ptrdiff_t incr)
 {
     abort();
+}
+
+int _getpid_r(struct _reent *r)
+{
+    __errno_r(r) = ENOSYS;
+    return -1;
 }

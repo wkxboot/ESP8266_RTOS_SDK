@@ -79,6 +79,8 @@ static bool tcpip_inited = false;
 
 static const char* TAG = "tcpip_adapter";
 
+ESP_EVENT_DEFINE_BASE(IP_EVENT);
+
 /* Avoid warning. No header file has include these function */
 err_t ethernetif_init(struct netif* netif);
 void system_station_got_ip_set();
@@ -93,6 +95,7 @@ static void tcpip_adapter_dhcps_cb(u8_t client_ip[4])
                 client_ip[0],client_ip[1],client_ip[2],client_ip[3]);
     system_event_t evt;
     evt.event_id = SYSTEM_EVENT_AP_STAIPASSIGNED;
+    memcpy(&evt.event_info.ap_staipassigned.ip, client_ip, 4);
     esp_event_send(&evt);
 }
 
@@ -374,6 +377,11 @@ esp_err_t tcpip_adapter_start(tcpip_adapter_if_t tcpip_if, uint8_t *mac, tcpip_a
             }
         }
         netif_add(esp_netif[tcpip_if], &ip_info->ip, &ip_info->netmask, &ip_info->gw, (void *)tcpip_if, ethernetif_init, tcpip_input);
+#if ESP_GRATUITOUS_ARP
+        if (tcpip_if == TCPIP_ADAPTER_IF_STA || tcpip_if == TCPIP_ADAPTER_IF_ETH) {
+            netif_set_garp_flag(esp_netif[tcpip_if]);
+        }
+#endif
     }
 
     if (tcpip_if == TCPIP_ADAPTER_IF_AP) {
@@ -579,6 +587,7 @@ esp_err_t tcpip_adapter_set_ip_info(tcpip_adapter_if_t tcpip_if, tcpip_adapter_i
                     evt.event_info.got_ip.ip_changed = true;
                 }
 
+                evt.event_info.got_ip.if_index = TCPIP_ADAPTER_IF_STA;
                 memcpy(&evt.event_info.got_ip.ip_info, ip_info, sizeof(tcpip_adapter_ip_info_t));
                 memcpy(&esp_ip_old[tcpip_if], ip_info, sizeof(tcpip_adapter_ip_info_t));
                 esp_event_send(&evt);
@@ -915,7 +924,7 @@ esp_err_t tcpip_adapter_dhcps_stop(tcpip_adapter_if_t tcpip_if)
 esp_err_t tcpip_adapter_dhcpc_option(tcpip_adapter_option_mode_t opt_op, tcpip_adapter_option_id_t opt_id, void *opt_val, uint32_t opt_len)
 {
     // TODO: when dhcp request timeout,change the retry count
-    return ESP_OK;
+    return ESP_ERR_NOT_SUPPORTED;
 }
 
 static void tcpip_adapter_dhcpc_cb(struct netif *netif)
@@ -1214,28 +1223,6 @@ esp_err_t tcpip_adapter_get_netif(tcpip_adapter_if_t tcpip_if, void ** netif)
     return ESP_OK;
 }
 
-struct netif* ip4_route_src_hook(const ip4_addr_t* dest, const ip4_addr_t* src)
-{
-    extern struct netif *netif_list;
-    struct netif *netif = NULL;
-
-    /* destination IP is broadcast IP? */
-    if ((src != NULL) && !ip4_addr_isany(src)) {
-        /* iterate through netifs */
-        for (netif = netif_list; netif != NULL; netif = netif->next) {
-        /* is the netif up, does it have a link and a valid address? */
-            if (netif_is_up(netif) && netif_is_link_up(netif) && !ip4_addr_isany_val(*netif_ip4_addr(netif))) {
-                /* source IP matches? */
-                if (ip4_addr_cmp(src, netif_ip4_addr(netif))) {
-                    /* return netif on which to forward IP packet */
-                    return netif;
-                }
-            }
-        }
-    }
-    return netif;
-}
-
 bool tcpip_adapter_is_netif_up(tcpip_adapter_if_t tcpip_if)
 {
     if (esp_netif[tcpip_if] != NULL && netif_is_up(esp_netif[tcpip_if])) {
@@ -1243,6 +1230,14 @@ bool tcpip_adapter_is_netif_up(tcpip_adapter_if_t tcpip_if)
     } else {
         return false;
     }
+}
+
+int tcpip_adapter_get_netif_index(tcpip_adapter_if_t tcpip_if)
+{
+    if (tcpip_if >= TCPIP_ADAPTER_IF_MAX || esp_netif[tcpip_if] == NULL) {
+        return -1;
+    }
+    return netif_get_index(esp_netif[tcpip_if]);
 }
 
 #endif /* CONFIG_TCPIP_LWIP */

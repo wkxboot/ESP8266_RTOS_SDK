@@ -16,12 +16,23 @@
 #include "esp_libc.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
+#include "esp_log.h"
 #include "internal/esp_wifi_internal.h"
 #include "phy.h"
 
+#define TAG "wifi_init"
+
 const size_t _g_esp_wifi_ppt_task_stk_size = CONFIG_WIFI_PPT_TASKSTACK_SIZE;
 
+#if CONFIG_ESP8266_WIFI_CONNECT_OPEN_ROUTER_WHEN_PWD_IS_SET
+const bool _g_esp_wifi_connect_open_router_when_pwd_is_set = true;
+#else
+const bool _g_esp_wifi_connect_open_router_when_pwd_is_set = false;
+#endif
+
 esp_err_t esp_wifi_init_internal(const wifi_init_config_t *config);
+
+ESP_EVENT_DEFINE_BASE(WIFI_EVENT);
 
 static void esp_wifi_set_debug_log()
 {
@@ -77,6 +88,18 @@ static void esp_wifi_set_debug_log()
 #if CONFIG_ESP8266_WIFI_DEBUG_LOG_SUBMODULE_WPS
     wifi_log_submodule |= WIFI_LOG_SUBMODULE_WPS;
 #endif
+#if CONFIG_ESP8266_WIFI_DEBUG_LOG_SUBMODULE_AMPDU
+    wifi_log_submodule |= WIFI_LOG_SUBMODULE_AMPDU;
+#endif
+#if CONFIG_ESP8266_WIFI_DEBUG_LOG_SUBMODULE_AMSDU
+    wifi_log_submodule |= WIFI_LOG_SUBMODULE_AMSDU;
+#endif
+#if CONFIG_ESP8266_WIFI_DEBUG_LOG_SUBMODULE_FRAG
+    wifi_log_submodule |= WIFI_LOG_SUBMODULE_FRAG;
+#endif
+#if CONFIG_ESP8266_WIFI_DEBUG_LOG_SUBMODULE_WPA2
+    wifi_log_submodule |= WIFI_LOG_SUBMODULE_WPA2;
+#endif
     esp_wifi_internal_set_log_level(wifi_log_level);
     esp_wifi_internal_set_log_mod(wifi_log_submodule);
 #else
@@ -106,11 +129,16 @@ static void esp_wifi_set_debug_log()
   */
 esp_err_t esp_wifi_init(const wifi_init_config_t *config)
 {
-    esp_event_set_default_wifi_handlers();
     esp_err_t result = esp_wifi_init_internal(config);
     if (result == ESP_OK) {
         esp_wifi_set_debug_log();
     }
+
+    result = tcpip_adapter_set_default_wifi_handlers();
+    if (result != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set default Wi-Fi event handlers (0x%x)", result);
+    }
+
     return result;
 }
 

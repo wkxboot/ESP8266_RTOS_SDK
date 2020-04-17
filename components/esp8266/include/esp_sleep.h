@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#pragma once
+
 #include <stdint.h>
 #include "esp_err.h"
 #include "driver/gpio.h"
@@ -26,7 +28,22 @@ typedef enum {
     WIFI_MODEM_SLEEP_T
 } wifi_sleep_type_t;
 
+typedef enum esp_sleep_mode {
+    ESP_CPU_WAIT = 0,
+    ESP_CPU_LIGHTSLEEP,
+} esp_sleep_mode_t;
+
 typedef void (*fpm_wakeup_cb)(void);
+
+/**
+ * @brief Sleep wakeup cause
+ */
+typedef enum {
+    ESP_SLEEP_WAKEUP_UNDEFINED,    //!< In case of deep sleep, reset was not caused by exit from deep sleep
+    ESP_SLEEP_WAKEUP_ALL,          //!< Not a wakeup cause, used to disable all wakeup sources with esp_sleep_disable_wakeup_source
+    ESP_SLEEP_WAKEUP_TIMER,        //!< Wakeup caused by timer
+    ESP_SLEEP_WAKEUP_GPIO,         //!< Wakeup caused by GPIO (light sleep only)
+} esp_sleep_source_t;
 
 /**
   * @brief     Set the chip to deep-sleep mode.
@@ -75,14 +92,14 @@ void esp_deep_sleep_set_rf_option(uint8_t option);
   *
   * @return    null
   */
-void esp_wifi_fpm_open(void);
+void esp_wifi_fpm_open(void) __attribute__ ((deprecated));
 
 /**
   * @brief  Disable force sleep function.
   *
   * @return null
   */
-void esp_wifi_fpm_close(void);
+void esp_wifi_fpm_close(void) __attribute__ ((deprecated));
 
 /**
   * @brief     Wake ESP8266 up from MODEM_SLEEP_T force sleep.
@@ -93,7 +110,7 @@ void esp_wifi_fpm_close(void);
   *
   * @return    null
   */
-void esp_wifi_fpm_do_wakeup(void);
+void esp_wifi_fpm_do_wakeup(void) __attribute__ ((deprecated));
 
 /**
   * @brief     Set a callback of waken up from force sleep because of time out.
@@ -110,7 +127,7 @@ void esp_wifi_fpm_do_wakeup(void);
   *
   * @return    null
   */
-void esp_wifi_fpm_set_wakeup_cb(fpm_wakeup_cb cb);
+void esp_wifi_fpm_set_wakeup_cb(fpm_wakeup_cb cb) __attribute__ ((deprecated));
 
 /**
   * @brief     Force ESP8266 enter sleep mode, and it will wake up automatically when time out.
@@ -133,7 +150,7 @@ void esp_wifi_fpm_set_wakeup_cb(fpm_wakeup_cb cb);
   * @return  ESP_ERR_WIFI_PM_MODE_OPEN, fail to sleep, Please call esp_wifi_set_ps(WIFI_PS_NONE) first.
   * @return  ESP_ERR_WIFI_MODE, fail to sleep, Please call esp_wifi_set_mode(WIFI_MODE_NULL) first.
   */
-esp_err_t esp_wifi_fpm_do_sleep(uint32_t sleep_time_in_us);
+esp_err_t esp_wifi_fpm_do_sleep(uint32_t sleep_time_in_us) __attribute__ ((deprecated));
 
 /**
   * @brief     Set sleep type for force sleep function.
@@ -144,14 +161,14 @@ esp_err_t esp_wifi_fpm_do_sleep(uint32_t sleep_time_in_us);
   *
   * @return    null
   */
-void esp_wifi_fpm_set_sleep_type(wifi_sleep_type_t type);
+void esp_wifi_fpm_set_sleep_type(wifi_sleep_type_t type) __attribute__ ((deprecated));
 
 /**
   * @brief  Get sleep type of force sleep function.
   *
   * @return sleep type
   */
-wifi_sleep_type_t esp_wifi_fpm_get_sleep_type(void);
+wifi_sleep_type_t esp_wifi_fpm_get_sleep_type(void) __attribute__ ((deprecated));
 
 /**
   * @brief  Set a GPIO to wake the ESP8266 up from light-sleep mode 
@@ -171,12 +188,63 @@ wifi_sleep_type_t esp_wifi_fpm_get_sleep_type(void);
   *
   * @return   null
   */
-void esp_wifi_enable_gpio_wakeup(uint32_t gpio_num, gpio_int_type_t intr_status);
+void esp_wifi_enable_gpio_wakeup(uint32_t gpio_num, gpio_int_type_t intr_status) __attribute__ ((deprecated));
 
 /**
   * @brief  Disable the function that the GPIO can wake the ESP8266 up from light-sleep mode.
   */
-void esp_wifi_disable_gpio_wakeup(void);
+void esp_wifi_disable_gpio_wakeup(void) __attribute__ ((deprecated));
+
+/**
+ * @brief Enable wakeup by timer
+ * @param time_in_us  time before wakeup, in microseconds
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if value is out of range (TBD)
+ */
+esp_err_t esp_sleep_enable_timer_wakeup(uint32_t time_in_us);
+
+/**
+ * @brief Enter light sleep with the configured wakeup options
+ *
+ * @return
+ *  - ESP_OK on success (returned after wakeup)
+ *  - ESP_ERR_INVALID_STATE if WiFi or BT is not stopped
+ */
+esp_err_t esp_light_sleep_start(void);
+
+/**
+ * @brief Operation system start check time and enter sleep
+ * 
+ * @note This function is called by system, user should not call this
+ */
+void esp_sleep_start(void);
+
+/**
+ * @brief Enable wakeup from light sleep using GPIOs
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if wakeup triggers conflict
+ */
+esp_err_t esp_sleep_enable_gpio_wakeup(void);
+
+/**
+ * @brief Disable wakeup source
+ *
+ * This function is used to deactivate wake up trigger for source
+ * defined as parameter of the function.
+ *
+ * @note This function does not modify wake up configuration in RTC.
+ *       It will be performed in esp_sleep_start function.
+ *
+ * @param source - number of source to disable of type esp_sleep_source_t
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if trigger was not active
+ */
+esp_err_t esp_sleep_disable_wakeup_source(esp_sleep_source_t source);
 
 #ifdef __cplusplus
 }

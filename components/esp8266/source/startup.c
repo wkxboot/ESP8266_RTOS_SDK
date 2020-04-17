@@ -33,8 +33,9 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "esp_task.h"
 
-#if defined(CONFIG_NEWLIB_LIBRARY_LEVEL_NORMAL) || defined(CONFIG_NEWLIB_LIBRARY_LEVEL_NANO)
+#ifndef CONFIG_NEWLIB_LIBRARY_CUSTOMER
 #include "esp_newlib.h"
 #endif
 
@@ -47,6 +48,9 @@ extern int wifi_timer_init(void);
 extern int wifi_nvs_init(void);
 extern esp_err_t esp_pthread_init(void);
 extern void phy_get_bb_evm(void);
+extern void uart_div_modify(uint8_t uart_no, uint16_t DivLatchValue);
+/*Only for calling esp_wifi_set_ps can compile successfully */
+uint32_t LwipTimOutLim = 0;
 
 static inline int should_load(uint32_t load_addr)
 {
@@ -54,6 +58,9 @@ static inline int should_load(uint32_t load_addr)
         if (esp_reset_reason_early() == ESP_RST_DEEPSLEEP)
             return 0;
     }
+
+    if (IS_FLASH(load_addr))
+        return 0;
 
     return 1;
 }
@@ -73,13 +80,15 @@ static void user_init_entry(void *param)
 
     phy_get_bb_evm();
 
+    /*enable tsf0 interrupt for pwm*/
+    REG_WRITE(PERIPHS_DPORT_BASEADDR, (REG_READ(PERIPHS_DPORT_BASEADDR) & ~0x1F) | 0x1);
+    REG_WRITE(INT_ENA_WDEV, REG_READ(INT_ENA_WDEV) | WDEV_TSF0_REACH_INT);
+
     assert(nvs_flash_init() == 0);
-    assert(wifi_nvs_init() == 0);
     assert(rtc_init() == 0);
     assert(mac_init() == 0);
     assert(base_gpio_init() == 0);
     esp_phy_load_cal_and_init(0);
-    assert(wifi_timer_init() == 0);
 
     esp_wifi_set_rx_pbuf_mem_type(WIFI_RX_PBUF_DRAM);
 
@@ -87,7 +96,7 @@ static void user_init_entry(void *param)
     esp_reset_reason_init();
 #endif
 
-#ifdef CONFIG_TASK_WDT
+#ifdef CONFIG_ESP_TASK_WDT
     esp_task_wdt_init();
 #endif
 
@@ -96,7 +105,7 @@ static void user_init_entry(void *param)
 #endif
 
 #ifdef CONFIG_ESP8266_DEFAULT_CPU_FREQ_160
-    rtc_clk_cpu_freq_set(RTC_CPU_FREQ_160M);
+    esp_set_cpu_freq(ESP_CPU_FREQ_160M);
 #endif
 
     app_main();
@@ -104,12 +113,13 @@ static void user_init_entry(void *param)
     vTaskDelete(NULL);
 }
 
-void call_user_start(size_t start_addr)
+void call_start_cpu(size_t start_addr)
 {
     int i;
     int *p;
 
     extern int _bss_start, _bss_end;
+    extern int _iram_bss_start, _iram_bss_end;
 
     esp_image_header_t *head = (esp_image_header_t *)(FLASH_BASE + (start_addr & (FLASH_SIZE - 1)));
     esp_image_segment_header_t *segment = (esp_image_segment_header_t *)((uintptr_t)head + sizeof(esp_image_header_t));
@@ -148,6 +158,10 @@ void call_user_start(size_t start_addr)
     for (p = &_bss_start; p < &_bss_end; p++)
         *p = 0;
 
+    /* clear iram_bss data */
+    for (p = &_iram_bss_start; p < &_iram_bss_end; p++)
+        *p = 0;
+
     __asm__ __volatile__(
         "rsil       a2, 2\n"
         "movi       a1, _chip_interrupt_tmp\n"
@@ -160,11 +174,11 @@ void call_user_start(size_t start_addr)
     assert(__esp_os_init() == 0);
 #endif
 
-#if defined(CONFIG_NEWLIB_LIBRARY_LEVEL_NORMAL) || defined(CONFIG_NEWLIB_LIBRARY_LEVEL_NANO)
+#ifndef CONFIG_NEWLIB_LIBRARY_CUSTOMER
     esp_newlib_init();
 #endif
 
-    assert(xTaskCreate(user_init_entry, "uiT", CONFIG_MAIN_TASK_STACK_SIZE, NULL, configMAX_PRIORITIES, NULL) == pdPASS);
+    assert(xTaskCreate(user_init_entry, "uiT", ESP_TASK_MAIN_STACK, NULL, configMAX_PRIORITIES, NULL) == pdPASS);
 
     vTaskStartScheduler();
 }
