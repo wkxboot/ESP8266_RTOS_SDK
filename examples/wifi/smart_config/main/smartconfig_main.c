@@ -31,7 +31,13 @@ static const int CONNECTED_BIT = BIT0;
 static const int ESPTOUCH_DONE_BIT = BIT1;
 static const char *TAG = "sc";
 
-void smartconfig_example_task(void * parm);
+static void smartconfig_example_task(void * parm);
+
+static void on_wifi_start(void *arg, esp_event_base_t event_base,
+                          int32_t event_id, void *event_data)
+{
+    xTaskCreate(smartconfig_example_task, "smartconfig_example_task", 4096, NULL, 3, NULL);
+}
 
 static void on_wifi_disconnect(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
@@ -41,7 +47,7 @@ static void on_wifi_disconnect(void *arg, esp_event_base_t event_base,
     ESP_LOGI(TAG, "Wi-Fi disconnected, trying to reconnect...");
     if (event->reason == WIFI_REASON_BASIC_RATE_NOT_SUPPORT) {
         /*Switch to 802.11 bgn mode */
-        esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCAL_11B | WIFI_PROTOCAL_11G | WIFI_PROTOCAL_11N);
+        esp_wifi_set_protocol(ESP_IF_WIFI_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
     }
     ESP_ERROR_CHECK(esp_wifi_connect());
 }
@@ -63,6 +69,7 @@ static void initialise_wifi(void)
 
     ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
 
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_START, &on_wifi_start, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &on_wifi_disconnect, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &on_got_ip, NULL));
 
@@ -116,7 +123,7 @@ static void sc_callback(smartconfig_status_t status, void *pdata)
     }
 }
 
-void smartconfig_example_task(void * parm)
+static void smartconfig_example_task(void * parm)
 {
     EventBits_t uxBits;
     ESP_ERROR_CHECK( esp_smartconfig_set_type(SC_TYPE_ESPTOUCH_AIRKISS) );

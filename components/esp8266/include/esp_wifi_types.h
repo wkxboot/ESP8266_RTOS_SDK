@@ -139,6 +139,7 @@ typedef enum {
     WIFI_CIPHER_TYPE_TKIP,       /**< the cipher type is TKIP */
     WIFI_CIPHER_TYPE_CCMP,       /**< the cipher type is CCMP */
     WIFI_CIPHER_TYPE_TKIP_CCMP,  /**< the cipher type is TKIP and CCMP */
+    WIFI_CIPHER_TYPE_AES_CMAC128,/**< the cipher type is AES-CMAC-128 */
     WIFI_CIPHER_TYPE_UNKNOWN,    /**< the cipher type is unknown */
 } wifi_cipher_type_t;
 
@@ -185,10 +186,29 @@ typedef struct {
 } wifi_fast_scan_threshold_t;
 
 typedef enum {
+    WIFI_STATE_DEINIT=0,
+    WIFI_STATE_INIT,
+    WIFI_STATE_START
+}wifi_state_t;
+
+typedef enum {
     WIFI_PS_NONE,        /**< No power save */
-    WIFI_PS_MAX_MODEM,   /**< Maximum modem power saving. In this mode, station close cpu and RF in DTIM period */
-    WIFI_PS_MIN_MODEM,   /**< Minimum modem power saving. In this mode, station close RF in DTIM period */
+    WIFI_PS_MIN_MODEM,   /**< Minimum modem power saving. In this mode, station wakes up to receive beacon every DTIM period */
+    WIFI_PS_MAX_MODEM,   /**< Maximum modem power saving. In this mode, interval to receive beacons is determined by the listen_interval 
+                              parameter in wifi_sta_config_t. 
+                              Attention: Using this option may cause ping failures. Not recommended */
 } wifi_ps_type_t;
+
+/**
+ * @brief Power management config for ESP8266
+ *
+ * Pass a pointer to this structure as an argument to esp_pm_configure function.
+ */
+typedef struct {
+    int max_freq_mhz;   /*!< Not used in ESP8266 */
+    int min_freq_mhz;   /*!< Not used in ESP8266 */
+    bool light_sleep_enable;        /*!< Enter light sleep when no locks are taken */
+} esp_pm_config_esp8266_t;
 
 #define WIFI_PS_MODEM WIFI_PS_MIN_MODEM /**< @deprecated Use WIFI_PS_MIN_MODEM or WIFI_PS_MAX_MODEM instead */
 
@@ -201,6 +221,12 @@ typedef enum {
     WIFI_BW_HT20 = 1, /* Bandwidth is HT20 */
     WIFI_BW_HT40,     /* Bandwidth is HT40 */
 } wifi_bandwidth_t;
+
+/** Configuration structure for Protected Management Frame */
+typedef struct {
+    bool capable;            /**< Advertizes support for Protected Management Frame. Device will prefer to connect in PMF mode if other device also advertizes PMF capability. */
+    bool required;           /**< Advertizes that Protected Management Frame is required. Device will not associate to non-PMF capable devices. */
+} wifi_pmf_config_t;
 
 /** @brief Soft-AP configuration settings for the ESP8266 */
 typedef struct {
@@ -225,6 +251,7 @@ typedef struct {
     uint16_t listen_interval;   /**< Listen interval for ESP8266 station to receive beacon when WIFI_PS_MAX_MODEM is set. Units: AP beacon intervals. Defaults to 3 if set to 0. */
     wifi_sort_method_t sort_method;    /**< sort the connect AP in the list by rssi or security mode */
     wifi_fast_scan_threshold_t  threshold;     /**< When scan_method is set to WIFI_FAST_SCAN, only APs which have an auth mode that is more secure than the selected auth mode and a signal stronger than the minimum RSSI will be used. */
+    wifi_pmf_config_t pmf_cfg;    /**< Configuration for Protected Management Frame. Will be advertized in RSN Capabilities in RSN IE. */
 } wifi_sta_config_t;
 
 /** @brief Configuration data for ESP8266 AP or STA.
